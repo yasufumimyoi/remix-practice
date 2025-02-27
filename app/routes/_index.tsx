@@ -1,4 +1,10 @@
 import type { MetaFunction } from "@remix-run/node";
+import { json, type ActionFunctionArgs } from "@remix-run/node";
+import { Form, useLoaderData } from "@remix-run/react";
+import { Button } from "~/components/ui/button";
+import { Input } from "~/components/ui/input";
+import { Checkbox } from "~/components/ui/checkbox";
+import { db } from "~/utils/db.server";
 
 export const meta: MetaFunction = () => {
   return [
@@ -7,47 +13,91 @@ export const meta: MetaFunction = () => {
   ];
 };
 
+export async function loader() {
+  const todos = await db.todo.findMany({
+    orderBy: { createdAt: "desc" },
+  });
+  return json({ todos });
+}
+
+export async function action({ request }: ActionFunctionArgs) {
+  const formData = await request.formData();
+  const action = formData.get("action");
+
+  if (action === "create") {
+    const title = formData.get("title");
+    if (typeof title === "string") {
+      await db.todo.create({
+        data: { title },
+      });
+    }
+  }
+
+  if (action === "toggle") {
+    const id = formData.get("id");
+    const todo = await db.todo.findUnique({ where: { id: String(id) } });
+    if (todo) {
+      await db.todo.update({
+        where: { id: String(id) },
+        data: { completed: !todo.completed },
+      });
+    }
+  }
+
+  if (action === "delete") {
+    const id = formData.get("id");
+    await db.todo.delete({ where: { id: String(id) } });
+  }
+
+  return null;
+}
+
 export default function Index() {
+  const { todos } = useLoaderData<typeof loader>();
+
   return (
-    <div className="flex h-screen items-center justify-center">
-      <div className="flex flex-col items-center gap-16">
-        <header className="flex flex-col items-center gap-9">
-          <h1 className="leading text-2xl font-bold text-gray-800 dark:text-gray-100">
-            Welcome to <span className="sr-only">Remix</span>
-          </h1>
-          <div className="h-[144px] w-[434px]">
-            <img
-              src="/logo-light.png"
-              alt="Remix"
-              className="block w-full dark:hidden"
-            />
-            <img
-              src="/logo-dark.png"
-              alt="Remix"
-              className="hidden w-full dark:block"
-            />
+    <div className="max-w-2xl mx-auto p-6">
+      <h1 className="text-2xl font-bold mb-6">Todoリスト</h1>
+      
+      <Form method="post" className="flex gap-2 mb-6">
+        <Input type="text" name="title" placeholder="新しいタスクを入力" />
+        <input type="hidden" name="action" value="create" />
+        <Button type="submit">追加</Button>
+      </Form>
+
+      <div className="space-y-4">
+        {todos.map((todo) => (
+          <div key={todo.id} className="flex items-center gap-4 p-4 border rounded">
+            <Form method="post">
+              <input type="hidden" name="id" value={todo.id} />
+              <input type="hidden" name="action" value="toggle" />
+              <Checkbox
+                checked={todo.completed}
+                onCheckedChange={() => {
+                  const form = document.createElement("form");
+                  form.method = "post";
+                  form.appendChild(document.createElement("input")).name = "id";
+                  form.appendChild(document.createElement("input")).name = "action";
+                  form.elements.namedItem("id").value = todo.id;
+                  form.elements.namedItem("action").value = "toggle";
+                  form.submit();
+                }}
+              />
+            </Form>
+            
+            <span className={todo.completed ? "line-through" : ""}>
+              {todo.title}
+            </span>
+
+            <Form method="post" className="ml-auto">
+              <input type="hidden" name="id" value={todo.id} />
+              <input type="hidden" name="action" value="delete" />
+              <Button variant="destructive" size="sm" type="submit">
+                削除
+              </Button>
+            </Form>
           </div>
-        </header>
-        <nav className="flex flex-col items-center justify-center gap-4 rounded-3xl border border-gray-200 p-6 dark:border-gray-700">
-          <p className="leading-6 text-gray-700 dark:text-gray-200">
-            What&apos;s next?
-          </p>
-          <ul>
-            {resources.map(({ href, text, icon }) => (
-              <li key={href}>
-                <a
-                  className="group flex items-center gap-3 self-stretch p-3 leading-normal text-blue-700 hover:underline dark:text-blue-500"
-                  href={href}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  {icon}
-                  {text}
-                </a>
-              </li>
-            ))}
-          </ul>
-        </nav>
+        ))}
       </div>
     </div>
   );
